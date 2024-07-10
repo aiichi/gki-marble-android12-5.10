@@ -14,7 +14,7 @@ jobs:
       KERNEL_VERSION: "android12-5.10"
       OS_PATCH_LEVEL: "2023-01"
       SUB_LEVEL: "149"
-      KERNEL_VERSION_TAG: "${{KERNEL_VERSION}}-${{OS_PATCH_LEVEL}}"
+      KERNEL_VERSION_TAG: "${{ env.KERNEL_VERSION }}-${{ env.OS_PATCH_LEVEL }}"
       
       
     steps:
@@ -35,8 +35,8 @@ jobs:
           REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common ${KERNEL_VERSION_TAG})
           DEFAULT_MANIFEST_PATH=.repo/manifests/default.xml
           if grep -q deprecated <<< $REMOTE_BRANCH; then
-            echo "Found deprecated branch: ${{KERNEL_VERSION_TAG}}"
-            sed -i 's/"${{KERNEL_VERSION_TAG}}"/"deprecated\/${{KERNEL_VERSION_TAG}}"/g' $DEFAULT_MANIFEST_PATH
+            echo "Found deprecated branch: ${KERNEL_VERSION_TAG}"
+            sed -i 's/"${KERNEL_VERSION_TAG}"/"deprecated\/${KERNEL_VERSION_TAG}"/g' $DEFAULT_MANIFEST_PATH
             cat $DEFAULT_MANIFEST_PATH
           fi
           repo --version
