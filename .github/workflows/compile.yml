@@ -14,8 +14,7 @@ jobs:
       KERNEL_VERSION: "android12-5.10"
       OS_PATCH_LEVEL: "2023-01"
       SUB_LEVEL: "149"
-      KERNEL_VERSION_TAG: "${{ env.KERNEL_VERSION }}-${{ env.OS_PATCH_LEVEL }}"
-      
+      KERNEL_VERSION_TAG: "android12-5.10-2023-01"
       
     steps:
       - uses: actions/checkout@v4
