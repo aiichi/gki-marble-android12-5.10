@@ -1,0 +1,93 @@
+name: Build Kernel
+
+on: [workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
+      CCACHE_NOHASHDIR: "true"
+      CCACHE_MAXSIZE: "2G"
+      CCACHE_HARDLINK: "true"
+      
+      KERNEL_VERSION: "android12-5.10"
+      OS_PATCH_LEVEL: "2023-01"
+      SUB_LEVEL: "149"
+      KERNEL_VERSION_TAG: "${{KERNEL_VERSION}}-${{OS_PATCH_LEVEL}}"
+      
+      
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: SelfRepo
+          fetch-depth: 0
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+
+      - name: Setup kernel source
+        run: |
+          cd $GITHUB_WORKSPACE
+          sudo apt-get install repo -y
+          mkdir android-kernel && cd android-kernel
+          repo init --depth=1 --u https://android.googlesource.com/kernel/manifest -b common-${KERNEL_VERSION_TAG} --repo-rev=v2.16
+          REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common ${KERNEL_VERSION_TAG})
+          DEFAULT_MANIFEST_PATH=.repo/manifests/default.xml
+          if grep -q deprecated <<< $REMOTE_BRANCH; then
+            echo "Found deprecated branch: ${{KERNEL_VERSION_TAG}}"
+            sed -i 's/"${{KERNEL_VERSION_TAG}}"/"deprecated\/${{KERNEL_VERSION_TAG}}"/g' $DEFAULT_MANIFEST_PATH
+            cat $DEFAULT_MANIFEST_PATH
+          fi
+          repo --version
+          repo --trace sync -c -j$(nproc --all) --no-tags
+
+      - name: Intrigate KernelSU
+        run: |
+          cd $GITHUB_WORKSPACE/android-kernel
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.0
+          
+      - name: KSU Symbol magic
+        run: |
+          echo "[+] Export all symbol from abi_gki_aarch64.xml"
+          COMMON_ROOT=$GITHUB_WORKSPACE/android-kernel/common
+          KSU_ROOT=$GITHUB_WORKSPACE/android-kernel/KernelSU
+          ABI_XML=$COMMON_ROOT/android/abi_gki_aarch64.xml
+          SYMBOL_LIST=$COMMON_ROOT/android/abi_gki_aarch64
+          # python3 $KSU_ROOT/scripts/abi_gki_all.py $ABI_XML > $SYMBOL_LIST
+          echo "[+] Add KernelSU symbols"
+          cat $KSU_ROOT/kernel/export_symbol.txt | awk '{sub("[ \t]+","");print "  "$0}' >> $SYMBOL_LIST
+          
+      - name: Make working directory clean to avoid dirty
+        working-directory: android-kernel
+        run: |
+          rm common/android/abi_gki_protected_exports_* || echo "No protected exports!"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          cd common/ && git add -A && git commit -a -m "Add KernelSU"
+          repo status
+          
+      - name: Build Kernel
+        working-directory: android-kernel
+        run: |
+          if [ -e build/build.sh ]; then
+            LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang"
+          else
+            tools/bazel run --disk_cache=/home/runner/.cache/bazel --config=fast --config=stamp --lto=thin //common:kernel_aarch64_dist -- --dist_dir=dist
+          fi
+          
+      - name: Prepare AnyKernel3 Zip
+        run: |
+          OUTDIR=android-kernel/out/${KERNEL_VERSION}/dist
+          if [ ! -e $OUTDIR ]; then
+            OUTDIR=android-kernel/dist
+          fi
+          git clone https://github.com/Kernel-SU/AnyKernel3
+          rm -rf ./AnyKernel3/.git
+          cp $OUTDIR/Image ./AnyKernel3/
+          
+      - name: Upload AnyKernel3
+        uses: actions/upload-artifact@v4
+        with:
+          name: AnyKernel3-${KERNEL_VERSION}.${SUB_LEVEL}-${OS_PATCH_LEVEL}
+          path: ./AnyKernel3/*
