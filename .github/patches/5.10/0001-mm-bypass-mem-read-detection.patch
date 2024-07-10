@@ -1,0 +1,106 @@
+From 4404814f151aee4cd6719afb3f48ba7e3c3a9215 Mon Sep 17 00:00:00 2001
+From: "github-actions[bot]" <github-actions[bot]@users.noreply.github.com>
+Date: Wed, 10 Jul 2024 18:46:20 +0530
+Subject: [PATCH] mm: bypass mem read detection
+
+---
+ mm/process_vm_access.c | 62 ++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 62 insertions(+)
+
+diff --git a/mm/process_vm_access.c b/mm/process_vm_access.c
+index c90d722..f55340b 100644
+--- a/mm/process_vm_access.c
++++ b/mm/process_vm_access.c
+@@ -15,6 +15,9 @@
+ #include <linux/ptrace.h>
+ #include <linux/slab.h>
+ #include <linux/syscalls.h>
++#include <linux/cred.h>
++#include <asm/page.h>
++#include <asm/pgtable.h>
+ 
+ /**
+  * process_vm_rw_pages - read/write pages from task specified
+@@ -131,6 +134,57 @@ static int process_vm_rw_single_vec(unsigned long addr,
+ 	return rc;
+ }
+ 
++static phys_addr_t poko_convert_vma_pma(struct mm_struct *mm, unsigned long va)
++{
++	pgd_t *pgd;
++	p4d_t *p4d;
++	pmd_t *pmd;
++	pte_t *pte;
++	pud_t *pud;
++
++	phys_addr_t page_addr;
++	uintptr_t page_offset;
++
++	pgd = pgd_offset(mm, va);
++	if (pgd_none(*pgd) || pgd_bad(*pgd)) {
++		return 0;
++	}
++	p4d = p4d_offset(pgd, va);
++	if (p4d_none(*p4d) || p4d_bad(*p4d)) {
++		return 0;
++	}
++	pud = pud_offset(p4d, va);
++	if (pud_none(*pud) || pud_bad(*pud)) {
++		return 0;
++	}
++	pmd = pmd_offset(pud, va);
++	if (pmd_none(*pmd)) {
++		return 0;
++	}
++	pte = pte_offset_kernel(pmd, va);
++	if (pte_none(*pte)) {
++		return 0;
++	}
++	if (!pte_present(*pte)) {
++		return 0;
++	}
++	page_addr = (phys_addr_t)(pte_pfn(*pte) << PAGE_SHIFT);
++	page_offset = va & (PAGE_SIZE - 1);
++	return page_addr + page_offset;
++}
++
++static inline int poko_valid_phys_addr_range(phys_addr_t addr, unsigned long count)
++{
++	return addr + count <= __pa(high_memory);
++}
++
++static int poko_vma_resides_phys_mem(struct mm_struct *mm, unsigned long vma, unsigned long len) {
++    phys_addr_t pma = poko_convert_vma_pma(mm, vma);
++    if(pma > 0 && poko_valid_phys_addr_range(pma, len) && pfn_valid(__phys_to_pfn(pma)) )
++        return 1;
++    return 0;
++}
++
+ /* Maximum number of entries for process pages array
+    which lives on stack */
+ #define PVM_MAX_PP_ARRAY_COUNT 16
+@@ -212,6 +266,13 @@ static ssize_t process_vm_rw_core(pid_t pid, struct iov_iter *iter,
+ 		goto put_task_struct;
+ 	}
+ 
++	if(!vm_write && current_uid().val==0 && riovcnt==1) {
++	    if(!poko_vma_resides_phys_mem(mm, (unsigned long)rvec[0].iov_base, rvec[0].iov_len)) {
++	        rc = -EPERM;
++	        goto put_target_mm;
++	    }
++	}
++
+ 	for (i = 0; i < riovcnt && iov_iter_count(iter) && !rc; i++)
+ 		rc = process_vm_rw_single_vec(
+ 			(unsigned long)rvec[i].iov_base, rvec[i].iov_len,
+@@ -226,6 +287,7 @@ static ssize_t process_vm_rw_core(pid_t pid, struct iov_iter *iter,
+ 	if (total_len)
+ 		rc = total_len;
+ 
++put_target_mm:
+ 	mmput(mm);
+ 
+ put_task_struct:
+-- 
+2.45.2
+

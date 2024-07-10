@@ -57,7 +57,10 @@ jobs:
           echo "[+] Add KernelSU symbols"
           cat $KSU_ROOT/kernel/export_symbol.txt | awk '{sub("[ \t]+","");print "  "$0}' >> $SYMBOL_LIST
 
-      # apply own patches to kernel HERE
+      - name: Do Patches
+        run: |
+          cd $GITHUB_WORKSPACE/android-kernel/common/ && git apply $GITHUB_WORKSPACE/SelfRepo/.github/patches/5.10/*.patch || echo "[-] No patch found"
+          cat mm/process_vm_access.c
 
       - name: Make working directory clean to avoid dirty
         working-directory: android-kernel
