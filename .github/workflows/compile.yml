@@ -57,11 +57,6 @@ jobs:
           echo "[+] Add KernelSU symbols"
           cat $KSU_ROOT/kernel/export_symbol.txt | awk '{sub("[ \t]+","");print "  "$0}' >> $SYMBOL_LIST
 
-      - name: Do Patches
-        run: |
-          cd $GITHUB_WORKSPACE/android-kernel/common/ && git apply $GITHUB_WORKSPACE/SelfRepo/.github/patches/5.10/*.patch || echo "[-] No patch found"
-          cat mm/process_vm_access.c
-
       - name: Make working directory clean to avoid dirty
         working-directory: android-kernel
         run: |
@@ -79,7 +74,16 @@ jobs:
           else
             tools/bazel run --disk_cache=/home/runner/.cache/bazel --config=fast --config=stamp --lto=thin //common:kernel_aarch64_dist -- --dist_dir=dist
           fi
-
+      
+      - name: Build OutTree MemKernel Module
+        run: |
+          cd $GITHUB_WORKSPACE
+          curl -LSs "https://raw.githubusercontent.com/aiichi/MemKernel/main/kernel/setup.sh" | bash -s M-OUT
+          cd MemKernel/kernel
+          make CC="/usr/bin/ccache clang" LLVM=1 KDIR=$GITHUB_WORKSPACE/android-kernel/common
+          ls -a
+          cd $GITHUB_WORKSPACE
+     
       - name: Prepare AnyKernel3 Zip
         run: |
           OUTDIR=android-kernel/out/${KERNEL_VERSION}/dist
