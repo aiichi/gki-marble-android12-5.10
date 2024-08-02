@@ -77,6 +77,8 @@ jobs:
       
       - name: Build OutTree MemKernel Module
         run: |
+          cd $GITHUB_WORKSPACE/android-kernel/common
+          make oldconfig && make prepare
           cd $GITHUB_WORKSPACE
           curl -LSs "https://raw.githubusercontent.com/aiichi/MemKernel/main/kernel/setup.sh" | bash -s M-OUT
           cd MemKernel/kernel
