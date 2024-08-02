@@ -78,13 +78,10 @@ jobs:
       - name: Build OutTree MemKernel Module
         run: |
           cd $GITHUB_WORKSPACE
-          OUTDIR=android-kernel/out/${KERNEL_VERSION}/dist
-          if [ ! -e $OUTDIR ]; then
-            OUTDIR=android-kernel/dist
-          fi
+          OUTDIR=$GITHUB_WORKSPACE/android-kernel/out/${KERNEL_VERSION}/common
           curl -LSs "https://raw.githubusercontent.com/aiichi/MemKernel/main/kernel/setup.sh" | bash -s M-OUT
           cd MemKernel/kernel
-          make CC="/usr/bin/ccache clang" LLVM=1 KDIR=$OUTDIR
+          make CC="/usr/bin/ccache clang" LLVM=1 LLVM_IAS=1 KDIR=$OUTDIR
           ls -a
           cd $GITHUB_WORKSPACE
      
